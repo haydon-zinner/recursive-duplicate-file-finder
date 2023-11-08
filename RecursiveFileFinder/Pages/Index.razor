@@ -1,0 +1,155 @@
+﻿@page "/"
+
+<PageTitle>Index</PageTitle>
+
+<h3>Find Duplicate Files</h3>
+<p class="mb-1">Enter the path of a folder to scan.</p>
+<InputText style="width: 350px" @bind-Value="directoryPath" placeholder="C:\your\folder\location..."/>
+<button type="button" class="btn btn-primary mx-2 px-4" @onclick="Scan">Scan</button>
+
+<div>
+    <br/>
+    <p>Progress: @progress</p>
+    @if (fileName != "")
+    {
+        <p>Scanning file: @fileName</p>
+    }
+
+    @if (progress != "Not started")
+    {
+        <p>Scanned @countTotal and found @countFound duplicates</p>
+    }
+
+    @if (duplicateDetails.Count > 0)
+    {
+        <table>
+            <tr>
+                <th>Location</th>
+                <th>Hash</th>
+            </tr>
+            @foreach (var fileInfo in duplicateDetails)
+            {
+                <tr>
+                    <td>@fileInfo.Path</td>
+                    <td>@fileInfo.ContentHash</td>
+                </tr>
+            }
+        </table>
+    }
+</div>
+
+@code {
+    private string directoryPath = "";
+    private List<FileDetails> fileDetails = new List<FileDetails>();
+    private List<FileDetails> duplicateDetails = new List<FileDetails>();
+    private string progress = "Not started";
+    private string fileName = "";
+    private int countTotal = 0;
+    private int countFound = 0;
+
+
+    private async Task Scan()
+    {
+        // Reset progress and file details
+        fileDetails.Clear();
+        duplicateDetails.Clear();
+        progress = "Scanning...";
+        countTotal = 0;
+        countFound = 0;
+
+        // Scan files
+        await ScanFiles(directoryPath);
+
+        //Extract duplicates
+        RemoveUniqueEntries();
+
+        // Update progress
+        progress = "Scan complete";
+    }
+    /// <summary>
+    /// Scans for files in all folders and sub folders
+    /// </summary>
+    /// <param name="directory">Full directory path of the folder to scan</param>
+    /// <returns></returns>
+    private async Task ScanFiles(string directory)
+    {
+        var files = Directory.GetFiles(directory);
+
+        foreach (var file in files)
+        {
+            countTotal++;
+            fileName = Path.GetFileName(file);
+            var fileContentHash = ComputeFileContentHash(file);
+            fileDetails.Add(new FileDetails { Path = file, ContentHash = fileContentHash });
+
+            //Allow for UI to update
+            await Task.Delay(1);
+            StateHasChanged();
+
+            //reset on the last file
+            fileName = "";
+        }
+
+        var subDirectories = Directory.GetDirectories(directory);
+
+        //Recursive call the function
+        foreach (var subDirectory in subDirectories)
+        {
+            await ScanFiles(subDirectory);
+        }
+    }
+    /// <summary>
+    /// Converts the files contents into a unique hash
+    /// </summary>
+    /// <param name="filePath">Full location path</param>
+    /// <returns>SHA256 hash of the file</returns>
+    private string ComputeFileContentHash(string filePath)
+    {
+        using (var stream = File.OpenRead(filePath))
+        {
+            var sha256 = System.Security.Cryptography.SHA256.Create();
+            byte[] hashBytes = sha256.ComputeHash(stream);
+            return BitConverter.ToString(hashBytes).Replace("-", "");
+        }
+    }
+
+    /// <summary>
+    /// Creates a new list composed of all duplicate entries
+    /// </summary>
+    private void RemoveUniqueEntries()
+    {
+        var hashCounts = new Dictionary<string, int>();
+        var duplicates = new List<FileDetails>();
+
+        //Add each hash to a dictionary and count occurances
+        foreach(var fileInfo in fileDetails)
+        {
+            if (!hashCounts.ContainsKey(fileInfo.ContentHash))
+            {
+                hashCounts[fileInfo.ContentHash] = 1;
+            }
+            else
+            {
+                hashCounts[fileInfo.ContentHash]++;
+            }
+        }
+
+        //Extract duplicate entries
+        foreach (var fileInfo in fileDetails)
+        {
+            if (hashCounts[fileInfo.ContentHash] > 1)
+            {
+                duplicateDetails.Add(fileInfo);
+            }
+        }
+
+        //Update duplicate count
+        countFound = duplicateDetails.Count();
+    }
+
+    public class FileDetails
+    {
+        public string Path { get; set; }
+        public string ContentHash { get; set; }
+    }
+}
